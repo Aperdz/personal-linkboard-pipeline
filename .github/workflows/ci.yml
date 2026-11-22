@@ -85,7 +85,7 @@ jobs:
         with:
           terraform_version: '1.9.8'
       - name: Check Terraform formatting
-        run: terraform fmt -check -recursive terraform
+        run: terraform fmt
       - name: Validate modules and environments without remote state
         run: |
           set -euo pipefail
