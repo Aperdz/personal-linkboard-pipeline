@@ -1,7 +1,7 @@
 name: 02 - Production Simulation (ephemeral Kind)
 on:
   push:
-    branches: [production-demo]
+    branches: [production-demo, deployment-simulation]
   workflow_dispatch:
 permissions:
   contents: read
