@@ -114,13 +114,32 @@ jobs:
     name: CI status summary
     runs-on: ubuntu-latest
     if: always()
-    needs: [backend-tests, frontend-build, security, terraform, image-build]
+    needs:
+      - backend-tests
+      - frontend-build
+      - security
+      - terraform
+      - image-build
+
     steps:
-      - name: Record gate statuses
+      - name: Record and enforce gate statuses
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo '## CI gate results' >> "$GITHUB_STEP_SUMMARY"
           echo '| Job | Result |' >> "$GITHUB_STEP_SUMMARY"
           echo '|---|---|' >> "$GITHUB_STEP_SUMMARY"
-          echo "$RESULTS" | jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' >> "$GITHUB_STEP_SUMMARY"
+
+          echo "$RESULTS" | jq -r \
+            'to_entries[] | "| \(.key) | \(.value.result) |"' \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          if echo "$RESULTS" | jq -e \
+            'any(.[]; .result != "success")' > /dev/null; then
+            echo '### CI failed: one or more required jobs did not succeed' \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo '### All required CI jobs passed' \
+            >> "$GITHUB_STEP_SUMMARY"
