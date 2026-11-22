@@ -15,11 +15,12 @@ jobs:
       - name: Create local Kubernetes cluster on GitHub runner
         uses: helm/kind-action@v1.12.0
         with:
+          cluster_name: linkboard-demo
           config: demo/kind-config.yaml
       - name: Build and load backend image
         run: |
           docker build -t linkboard-backend:demo-good ./backend
-          kind load docker-image linkboard-backend:demo-good
+          kind load docker-image linkboard-backend:demo-good --name linkboard-demo
       - name: Deploy dependencies and API
         run: |
           kubectl apply -f k8s/namespace.yaml
