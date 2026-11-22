@@ -1,0 +1,4 @@
+{"total": {"lines":{"total":43,"covered":21,"skipped":0,"pct":48.83},"statements":{"total":51,"covered":26,"skipped":0,"pct":50.98},"functions":{"total":6,"covered":1,"skipped":0,"pct":16.66},"branches":{"total":8,"covered":0,"skipped":0,"pct":0},"branchesTrue":{"total":0,"covered":0,"skipped":0,"pct":"Unknown"}}
+,"/home/jramanabat/repos/personal-linkboard-pipeline/backend/src/links/link.schema.ts": {"lines":{"total":6,"covered":6,"skipped":0,"pct":100},"functions":{"total":0,"covered":0,"skipped":0,"pct":100},"statements":{"total":8,"covered":8,"skipped":0,"pct":100},"branches":{"total":0,"covered":0,"skipped":0,"pct":100}}
+,"/home/jramanabat/repos/personal-linkboard-pipeline/backend/src/links/links.service.ts": {"lines":{"total":37,"covered":15,"skipped":0,"pct":40.54},"functions":{"total":6,"covered":1,"skipped":0,"pct":16.66},"statements":{"total":43,"covered":18,"skipped":0,"pct":41.86},"branches":{"total":8,"covered":0,"skipped":0,"pct":0}}
+}
