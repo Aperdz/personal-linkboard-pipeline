@@ -1,0 +1,126 @@
+name: 01 - Continuous Integration
+on:
+  push:
+    branches: [main, ci-demo, pipeline-demo]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backend-tests:
+    name: Backend tests and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - run: npm run typecheck
+        working-directory: backend
+      - name: Jest tests and coverage
+        run: npm run test:ci
+        working-directory: backend
+      - name: Add coverage to GitHub summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f backend/coverage/coverage-summary.json ]; then
+            node -e 'const c=require("./backend/coverage/coverage-summary.json").total; console.log(`### Backend coverage\n| Metric | Coverage |\n|---|---|\n| Lines | ${c.lines.pct}% |\n| Branches | ${c.branches.pct}% |\n| Functions | ${c.functions.pct}% |`)' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          if-no-files-found: warn
+  frontend-build:
+    name: Frontend typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+  security:
+    name: Secrets, dependencies and filesystem scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks secret detection
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trivy filesystem vulnerability and misconfiguration scan
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+  terraform:
+    name: Terraform static validation (no AWS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.8'
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive terraform
+      - name: Validate modules and environments without remote state
+        run: |
+          set -euo pipefail
+          for dir in terraform/modules/* terraform/environments/* terraform/global/*; do
+            [ -d "$dir" ] || continue
+            echo "Validating $dir"
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate -no-color
+          done
+  image-build:
+    name: Build and scan backend container
+    needs: [backend-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build immutable backend image
+        run: docker build -t linkboard-backend:${{ github.sha }} backend
+      - name: Scan container image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: linkboard-backend:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+  summary:
+    name: CI status summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [backend-tests, frontend-build, security, terraform, image-build]
+    steps:
+      - name: Record gate statuses
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo '## CI gate results' >> "$GITHUB_STEP_SUMMARY"
+          echo '| Job | Result |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|---|---|' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESULTS" | jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' >> "$GITHUB_STEP_SUMMARY"

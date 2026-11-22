@@ -1,0 +1,78 @@
+name: 02 - Production Simulation (ephemeral Kind)
+on:
+  push:
+    branches: [production-demo]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy-recover:
+    name: Kubernetes deployment, tenant RBAC, recovery, observability
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create local Kubernetes cluster on GitHub runner
+        uses: helm/kind-action@v1.12.0
+        with:
+          config: demo/kind-config.yaml
+      - name: Build and load backend image
+        run: |
+          docker build -t linkboard-backend:demo-good ./backend
+          kind load docker-image linkboard-backend:demo-good
+      - name: Deploy dependencies and API
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/mongo.yaml
+          kubectl apply -f k8s/redis.yaml
+          kubectl rollout status deployment/mongo -n linkboard --timeout=180s
+          kubectl rollout status deployment/redis -n linkboard --timeout=120s
+          kubectl apply -f k8s/backend.yaml
+          kubectl set image deployment/linkboard-backend backend=linkboard-backend:demo-good -n linkboard
+          kubectl rollout status deployment/linkboard-backend -n linkboard --timeout=180s
+      - name: Verify tenant isolation using Kubernetes RBAC and quota
+        run: bash demo/check-tenants.sh
+      - name: Check running API, dependencies, and Prometheus metrics
+        id: smoke
+        run: |
+          kubectl port-forward -n linkboard service/linkboard-backend 4000:80 > /tmp/linkboard-forward.log 2>&1 &
+          echo $! > /tmp/linkboard-forward.pid
+          for i in {1..25}; do curl -fsS http://127.0.0.1:4000/health && break || sleep 2; done
+          bash demo/smoke-test.sh
+      - name: Deliberately introduce bad release and verify automatic recovery
+        id: rollback
+        run: |
+          set -euo pipefail
+          kubectl set image deployment/linkboard-backend backend=linkboard-backend:demo-broken -n linkboard
+          if kubectl rollout status deployment/linkboard-backend -n linkboard --timeout=65s; then
+            echo 'FAIL: bad image unexpectedly passed rollout'; exit 1
+          fi
+          echo 'Expected failure detected: broken image cannot roll out' | tee demo-results/rollback.log
+          kubectl rollout undo deployment/linkboard-backend -n linkboard
+          kubectl rollout status deployment/linkboard-backend -n linkboard --timeout=180s
+          curl -fsS --retry 8 --retry-delay 2 http://127.0.0.1:4000/health | tee -a demo-results/rollback.log
+          echo 'PASS: recovered previously healthy deployment' | tee -a demo-results/rollback.log
+      - name: GitHub summary
+        if: always()
+        run: |
+          echo '## Production-style simulation' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Ephemeral Kind cluster (not AWS or persistent production)' >> "$GITHUB_STEP_SUMMARY"
+          echo '- RBAC cross-tenant access denied and resource quotas checked' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Health + metrics smoke test: ${{ steps.smoke.outcome }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Bad-image rollback drill: ${{ steps.rollback.outcome }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '- NetworkPolicy enforcement, Prometheus server and Grafana not tested' >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect diagnostics even on failure
+        if: always()
+        run: |
+          mkdir -p demo-results
+          kubectl get pods -A -o wide > demo-results/pods.txt 2>&1 || true
+          kubectl get events -n linkboard --sort-by=.lastTimestamp > demo-results/events.txt 2>&1 || true
+          kubectl describe deployment linkboard-backend -n linkboard > demo-results/backend-deployment.txt 2>&1 || true
+          kubectl logs -n linkboard deploy/linkboard-backend --tail=150 > demo-results/backend.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulation-evidence
+          path: demo-results/
+          if-no-files-found: warn

@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-alpha
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-beta
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-quota
+  namespace: tenant-alpha
+spec:
+  hard:
+    pods: "3"
+    requests.cpu: "500m"
+    requests.memory: "512Mi"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-quota
+  namespace: tenant-beta
+spec:
+  hard:
+    pods: "3"
+    requests.cpu: "500m"
+    requests.memory: "512Mi"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenant-operator
+  namespace: tenant-alpha
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: view-own-pods
+  namespace: tenant-alpha
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tenant-operator-view
+  namespace: tenant-alpha
+subjects:
+  - kind: ServiceAccount
+    name: tenant-operator
+    namespace: tenant-alpha
+roleRef:
+  kind: Role
+  name: view-own-pods
+  apiGroup: rbac.authorization.k8s.io
